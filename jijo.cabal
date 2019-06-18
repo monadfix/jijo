@@ -93,29 +93,29 @@ test-suite jijo-test
     -rtsopts
     -with-rtsopts=-N
   build-depends:
-      aeson
-    , base
-    , jijo
-    , bytestring
-    , containers
-    , dlist
-    , email-validate
-    , hedgehog
-    , hspec
-    , hspec-discover
-    , hw-hspec-hedgehog
-    , lens
-    , lens-aeson
-    , megaparsec
-    , optparse-applicative
-    , profunctors
-    , scientific
-    , tagged
-    , template-haskell
-    , text
-    , transformers
-    , unordered-containers
-    , uuid
-    , vector
+    aeson,
+    base,
+    jijo,
+    bytestring,
+    containers,
+    dlist,
+    email-validate,
+    hedgehog,
+    hspec,
+    hspec-discover,
+    hw-hspec-hedgehog,
+    lens,
+    lens-aeson,
+    megaparsec,
+    optparse-applicative,
+    profunctors,
+    scientific,
+    tagged,
+    template-haskell,
+    text,
+    transformers,
+    unordered-containers,
+    uuid,
+    vector
   build-tool-depends: hspec-discover:hspec-discover
   default-language: Haskell2010
