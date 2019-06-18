@@ -1,0 +1,44 @@
+cabal-version: 2.1
+name: jijo
+version: 0.1
+synopsis: Bidirectional JSON serialization
+description:
+  jijo (JSON in, JSON out) is a JSON schema EDSL based on
+  composable abstractions, @Applicative@ and @Category@.
+
+  Features include:
+
+  * Schema is independent from the types unlike derived instances.
+  * Bidirectional definitions, no risk for serialization/deserialization code
+    to get out of sync.
+  * Structured validation errors, not strings.
+  * Accumulation of validation errors, not failure on the first one.
+
+build-type: Simple
+
+library
+  exposed-modules:
+    Jijo.Definition
+    Jijo.Path
+    Jijo.Validation
+    Jijo.RecordField
+    Jijo.RecordField.TH
+  build-depends:
+    base,
+    text,
+    containers,
+    unordered-containers,
+    transformers,
+    tagged,
+    profunctors,
+    aeson,
+    dlist,
+    scientific,
+    template-haskell
+  hs-source-dirs:
+    lib
+  default-language:
+    Haskell2010
+  ghc-options:
+    -Wall
+    -Wcompat
