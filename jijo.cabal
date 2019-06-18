@@ -5,9 +5,9 @@ synopsis: Bidirectional JSON serialization
 description:
   jijo (JSON in, JSON out) is a JSON schema EDSL based on
   composable abstractions, @Applicative@ and @Category@.
-
+  .
   Features include:
-
+  .
   * Schema is independent from the types unlike derived instances.
   * Bidirectional definitions, no risk for serialization/deserialization code
     to get out of sync.
@@ -15,6 +15,10 @@ description:
   * Accumulation of validation errors, not failure on the first one.
 
 build-type: Simple
+
+tested-with:
+  GHC==8.4.4
+  GHC==8.6.4
 
 library
   exposed-modules:
