@@ -14,7 +14,7 @@ description:
   * Structured validation errors, not strings.
   * Accumulation of validation errors, not failure on the first one.
 
-license: BSD3
+license: BSD-3-Clause
 license-file: LICENSE
 extra-source-files:
   ChangeLog.md
