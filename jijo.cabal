@@ -32,7 +32,7 @@ library
     Jijo.RecordField
     Jijo.RecordField.TH
   build-depends:
-    base,
+    base < 5,
     text,
     containers,
     unordered-containers,
