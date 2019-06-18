@@ -20,6 +20,10 @@ tested-with:
   GHC==8.4.4
   GHC==8.6.4
 
+source-repository head
+  type: git
+  location: git://github.com/monadfix/jijo.git
+
 library
   exposed-modules:
     Jijo.Definition
