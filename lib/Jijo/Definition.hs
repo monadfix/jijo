@@ -28,6 +28,7 @@ module Jijo.Definition
     jValidationError,
     jValidationFail,
     mapJValidationError,
+    eitherToJValidation,
     -- ** Defining objects
     JObjectDefinition,
     jObjectDefinition,

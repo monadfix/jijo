@@ -17,6 +17,7 @@ module Jijo.Validation
     jValidateField,
     jValidateOptField,
     mapJValidationError,
+    eitherToJValidation,
   ) where
 
 import Prelude hiding ((.), id)
@@ -131,6 +132,9 @@ jValidationError e =
 
 jValidationFail :: e -> JValidation e a
 jValidationFail = jValidationError . JValidationFail
+
+eitherToJValidation :: Either e a -> JValidation e a
+eitherToJValidation = either jValidationFail pure
 
 type LocalSig m r a = (r -> r) -> m a -> m a
 
