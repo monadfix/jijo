@@ -8,12 +8,11 @@ module Jijo.RecordField.TH
 import Data.List (foldl')
 import Control.Monad (when, mapM)
 import qualified Language.Haskell.TH as TH
-import qualified Data.Char as Char
 import Data.Coerce
 import Jijo.RecordField
 
-makeRecBuilder :: TH.Name -> TH.DecsQ
-makeRecBuilder tyName = do
+makeRecBuilder :: String -> TH.Name -> TH.DecsQ
+makeRecBuilder prefixStr tyName = do
   info <- TH.reify tyName
   dec <- case info of
     TH.TyConI dec -> pure dec
@@ -30,7 +29,6 @@ makeRecBuilder tyName = do
     TH.RecC conName vbts -> pure (conName, vbts)
     _ -> fail "Not a record type"
   let
-    prefixStr = toPrefix (TH.nameBase tyName)
     prefixLen = length prefixStr
     mkField (fieldName, _, fieldTy) = do
       let
@@ -59,7 +57,3 @@ makeRecBuilder tyName = do
   return
     [ TH.SigD builderName builderTy,
       TH.FunD builderName [TH.Clause [] (TH.NormalB builderExp) []] ]
-
-toPrefix :: String -> String
-toPrefix (x:xs) = '_' : Char.toLower x : xs
-toPrefix [] = []

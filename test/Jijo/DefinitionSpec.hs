@@ -27,7 +27,7 @@ import Jijo.Definition
 data Pair a b = Pair { _pairFst :: a, _pairSnd :: b }
   deriving (Eq, Show)
 
-makeRecBuilder ''Pair
+makeRecBuilder "_pair" ''Pair
 
 spec :: Spec
 spec = do
