@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Jijo.Validation
   ( JTy(..),
@@ -15,6 +16,7 @@ module Jijo.Validation
     jValidationLocal,
     jValidateField,
     jValidateOptField,
+    mapJValidationError,
   ) where
 
 import Prelude hiding ((.), id)
@@ -47,7 +49,7 @@ data JTy
   | JTyNumber
   | JTyBool
   | JTyNull
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Ord, Show)
 
 data JValidationError e
   = JTypeNotOneOf (Set JTy)
@@ -55,7 +57,8 @@ data JValidationError e
   | JMissingField Text
   | JMalformedSum
   | JValidationFail e
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
+  deriving stock Functor
 
 instance IsString e => IsString (JValidationError e) where
   fromString = JValidationFail . fromString
@@ -164,3 +167,15 @@ jValidateOptField fieldName vField o =
   for (HashMap.lookup fieldName o) $ \field ->
     jValidationLocal (addJPathSegment (JPSField fieldName)) $
     vField field
+
+mapJValidationError :: (e -> e') -> JValidation e a -> JValidation e' a
+mapJValidationError f v =
+  JValidation $ \pb es ->
+    let (a, es') = runJValidation v pb []
+    in (a, es ++ mapErrorList f es')
+
+mapErrorList :: (e -> e') -> ErrorList e -> ErrorList e'
+mapErrorList = map . overSnd . fmap @JValidationError
+
+overSnd :: (b -> b') -> (a, b) -> (a, b')
+overSnd = fmap

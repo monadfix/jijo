@@ -20,12 +20,14 @@ module Jijo.Definition
     jDefinition,
     validateViaDefinition,
     encodeViaDefinition,
+    mapJError,
     -- ** Validation
     JTy(..),
     JValidationError(..),
     JValidation,
     jValidationError,
     jValidationFail,
+    mapJValidationError,
     -- ** Defining objects
     JObjectDefinition,
     jObjectDefinition,
@@ -145,6 +147,10 @@ jDefinition ::
   (b -> a) ->
   JDefinition e a b
 jDefinition toB fromB = ArrPair (ValidationArr toB) (EncodingArr fromB)
+
+mapJError :: (e -> e') -> JDefinition e a b -> JDefinition e' a b
+mapJError f (ArrPair (ValidationArr toB) fromB) =
+  ArrPair (ValidationArr (mapJValidationError f . toB)) fromB
 
 ----------------------------------------------------------------------------
 -- Objects
@@ -357,23 +363,19 @@ jBool = jDefinition checkBool JSON.Bool
 --   parseJSON = parseJSON_viaDefinition jFoo
 -- @
 parseJSON_viaDefinition ::
-  (e -> String) ->
-  JDefinition e JSON.Value a ->
+  JDefinition String JSON.Value a ->
   JSON.Value -> JSON.Parser a
-parseJSON_viaDefinition pprValidationFail d j =
-  either (fail . renderJValidationErrorList pprValidationFail) return $
+parseJSON_viaDefinition d j =
+  either (fail . renderJValidationErrorList) return $
   validateViaDefinition d j
 
 renderJValidationErrorList ::
-  forall s e.
-  (IsString s, Monoid s) =>
-  (e -> s) ->
-  [(JPath, JValidationError e)] ->
-  s
-renderJValidationErrorList pprValidationFail =
+  [(JPath, JValidationError String)] ->
+  String
+renderJValidationErrorList =
   mconcat . List.intersperse "\n" . map formatError
   where
-    formatError :: (JPath, JValidationError e) -> s
+    formatError :: (JPath, JValidationError String) -> String
     formatError (path, err) =
       (fromString . Text.unpack) (renderJPath path) <> ": " <>
       case err of
@@ -381,11 +383,11 @@ renderJValidationErrorList pprValidationFail =
         JLabelNotOneOf jlabels -> "label not one of " <> pprSet (fromString . Text.unpack) jlabels
         JMissingField fname -> "missing field " <> (fromString . Text.unpack) fname
         JMalformedSum -> "malformed sum"
-        JValidationFail e -> pprValidationFail e
-    pprSet :: (a -> s) -> Set a -> s
+        JValidationFail e -> fromString e
+    pprSet :: (a -> String) -> Set a -> String
     pprSet pprElem s =
       "{" <> (mconcat . List.intersperse ",") (map pprElem (Set.toList s)) <> "}"
-    pprJTy :: JTy -> s
+    pprJTy :: JTy -> String
     pprJTy = \case
       JTyObject -> "object"
       JTyArray -> "array"
@@ -406,12 +408,11 @@ toJSON_viaDefinition = jEncode
 
 aesonJDefinition ::
   (JSON.FromJSON a, JSON.ToJSON a) =>
-  (String -> e) ->
-  JDefinition e JSON.Value a
-aesonJDefinition strToErr = jDefinition toB fromB
+  JDefinition String JSON.Value a
+aesonJDefinition = jDefinition toB fromB
   where
     toB j =
-      either (jValidationFail . strToErr) pure $
+      either jValidationFail pure $
       JSON.parseEither JSON.parseJSON j
     fromB = JSON.toJSON
 
