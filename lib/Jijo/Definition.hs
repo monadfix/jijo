@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- A framework for building JSON schemas that can be used to perform both
 -- validation and serialization.
@@ -45,6 +46,10 @@ module Jijo.Definition
     jString,
     jNumber,
     jBool,
+    -- ** Aeson integration
+    parseJSON_viaDefinition,
+    toJSON_viaDefinition,
+    aesonJDefinition,
   ) where
 
 import Prelude hiding ((.), id)
@@ -52,15 +57,19 @@ import Data.Text (Text)
 import Data.DList (DList)
 import Data.Scientific (Scientific)
 import Data.Map (Map)
+import Data.Set (Set)
 import GHC.TypeLits as TypeLits
 import Control.Monad
 import Control.Category
 import Data.Coerce
 import Data.Maybe
+import Data.String
 import Control.Exception (Exception, throw)
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Text as Text
+import qualified Data.List as List
 import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Aeson.Types as JSON
@@ -337,6 +346,74 @@ jBool = jDefinition checkBool JSON.Bool
     checkBool = \case
       JSON.Bool b -> pure b
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyBool))
+
+----------------------------------------------------------------------------
+-- Aeson integration
+----------------------------------------------------------------------------
+
+-- | Default definition for 'JSON.FromJSON':
+-- @
+-- instance FromJSON Foo where
+--   parseJSON = parseJSON_viaDefinition jFoo
+-- @
+parseJSON_viaDefinition ::
+  (e -> String) ->
+  JDefinition e JSON.Value a ->
+  JSON.Value -> JSON.Parser a
+parseJSON_viaDefinition pprValidationFail d j =
+  either (fail . renderJValidationErrorList pprValidationFail) return $
+  validateViaDefinition d j
+
+renderJValidationErrorList ::
+  forall s e.
+  (IsString s, Monoid s) =>
+  (e -> s) ->
+  [(JPath, JValidationError e)] ->
+  s
+renderJValidationErrorList pprValidationFail =
+  mconcat . List.intersperse "\n" . map formatError
+  where
+    formatError :: (JPath, JValidationError e) -> s
+    formatError (path, err) =
+      (fromString . Text.unpack) (renderJPath path) <> ": " <>
+      case err of
+        JTypeNotOneOf jtys -> "type not one of " <> pprSet pprJTy jtys
+        JLabelNotOneOf jlabels -> "label not one of " <> pprSet (fromString . Text.unpack) jlabels
+        JMissingField fname -> "missing field " <> (fromString . Text.unpack) fname
+        JMalformedSum -> "malformed sum"
+        JValidationFail e -> pprValidationFail e
+    pprSet :: (a -> s) -> Set a -> s
+    pprSet pprElem s =
+      "{" <> (mconcat . List.intersperse ",") (map pprElem (Set.toList s)) <> "}"
+    pprJTy :: JTy -> s
+    pprJTy = \case
+      JTyObject -> "object"
+      JTyArray -> "array"
+      JTyString -> "string"
+      JTyNumber -> "number"
+      JTyBool -> "bool"
+      JTyNull -> "null"
+
+-- | Default definition for 'JSON.ToJSON':
+-- @
+-- instance ToJSON Foo where
+--   toJSON = toJSON_viaDefinition jFoo
+-- @
+toJSON_viaDefinition ::
+  JDefinition e JSON.Value a ->
+  a -> JSON.Value
+toJSON_viaDefinition = jEncode
+
+aesonJDefinition ::
+  (JSON.FromJSON a, JSON.ToJSON a) =>
+  (String -> e) ->
+  JDefinition e JSON.Value a
+aesonJDefinition strToErr = jDefinition toB fromB
+  where
+    toB j =
+      either (jValidationFail . strToErr) pure $
+      JSON.parseEither JSON.parseJSON j
+    fromB = JSON.toJSON
 
 ----------------------------------------------------------------------------
 -- Prisms (to avoid a 'lens' dep)

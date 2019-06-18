@@ -26,6 +26,7 @@ import Data.Coerce
 import Data.Functor.Identity
 import Data.Functor.Compose
 import Data.Traversable
+import Data.String
 
 import GHC.TypeLits hiding (ErrorMessage(Text))
 import qualified GHC.TypeLits as TypeLits
@@ -55,6 +56,9 @@ data JValidationError e
   | JMalformedSum
   | JValidationFail e
   deriving (Eq, Show)
+
+instance IsString e => IsString (JValidationError e) where
+  fromString = JValidationFail . fromString
 
 type ErrorList e = [(JPath, JValidationError e)]
 
