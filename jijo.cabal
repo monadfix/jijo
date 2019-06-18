@@ -14,6 +14,15 @@ description:
   * Structured validation errors, not strings.
   * Accumulation of validation errors, not failure on the first one.
 
+license: BSD3
+license-file: LICENSE
+extra-source-files:
+  ChangeLog.md
+
+author: Vladislav Zavialov, Artyom Kazak
+maintainer: Monadfix <hi@monadfix.io>
+category: Text, Web, JSON
+
 build-type: Simple
 
 tested-with:
