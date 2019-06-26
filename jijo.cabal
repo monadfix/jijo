@@ -20,8 +20,11 @@ extra-source-files:
   ChangeLog.md
 
 author: Vladislav Zavialov, Artyom Kazak
-maintainer: Monadfix <hi@monadfix.io>
+maintainer: Monadfix <hi@monadfix.com>
 category: Text, Web, JSON
+
+homepage: https://github.com/monadfix/jijo
+bug-reports: https://github.com/monadfix/jijo/issues
 
 build-type: Simple
 
