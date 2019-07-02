@@ -49,6 +49,11 @@ module Jijo.Definition
     jString,
     jNumber,
     jBool,
+    jNullableObject,
+    jNullableArray,
+    jNullableString,
+    jNullableNumber,
+    jNullableBool,
     -- ** Aeson integration
     parseJSON_viaDefinition,
     toJSON_viaDefinition,
@@ -344,7 +349,7 @@ jNumber :: JDefinition e JSON.Value Scientific
 jNumber = jDefinition checkNumber JSON.Number
   where
     checkNumber = \case
-      JSON.Number b -> pure b
+      JSON.Number n -> pure n
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyNumber))
 
 jBool :: JDefinition e JSON.Value Bool
@@ -353,6 +358,61 @@ jBool = jDefinition checkBool JSON.Bool
     checkBool = \case
       JSON.Bool b -> pure b
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyBool))
+
+jNullableObject :: JDefinition e JSON.Value (Maybe JSON.Object)
+jNullableObject = jDefinition checkNullableObject toNullableObject
+  where
+    toNullableObject = \case
+      Nothing -> JSON.Null
+      Just o -> JSON.Object o
+    checkNullableObject = \case
+      JSON.Null -> pure Nothing
+      JSON.Object o -> pure (Just o)
+      _ -> jValidationError (JTypeNotOneOf (Set.fromList [JTyObject, JTyNull]))
+
+jNullableArray :: JDefinition e JSON.Value (Maybe JSON.Array)
+jNullableArray = jDefinition checkNullableArray toNullableArray
+  where
+    toNullableArray = \case
+      Nothing -> JSON.Null
+      Just a -> JSON.Array a
+    checkNullableArray = \case
+      JSON.Null -> pure Nothing
+      JSON.Array a -> pure (Just a)
+      _ -> jValidationError (JTypeNotOneOf (Set.fromList [JTyArray, JTyNull]))
+
+jNullableString :: JDefinition e JSON.Value (Maybe Text)
+jNullableString = jDefinition checkNullableString toNullableString
+  where
+    toNullableString = \case
+      Nothing -> JSON.Null
+      Just s -> JSON.String s
+    checkNullableString = \case
+      JSON.Null -> pure Nothing
+      JSON.String s -> pure (Just s)
+      _ -> jValidationError (JTypeNotOneOf (Set.fromList [JTyString, JTyNull]))
+
+jNullableNumber :: JDefinition e JSON.Value (Maybe Scientific)
+jNullableNumber = jDefinition checkNullableNumber toNullableNumber
+  where
+    toNullableNumber = \case
+      Nothing -> JSON.Null
+      Just n -> JSON.Number n
+    checkNullableNumber = \case
+      JSON.Null -> pure Nothing
+      JSON.Number n -> pure (Just n)
+      _ -> jValidationError (JTypeNotOneOf (Set.fromList [JTyNumber, JTyNull]))
+
+jNullableBool :: JDefinition e JSON.Value (Maybe Bool)
+jNullableBool = jDefinition checkNullableBool toNullableBool
+  where
+    toNullableBool = \case
+      Nothing -> JSON.Null
+      Just b -> JSON.Bool b
+    checkNullableBool = \case
+      JSON.Null -> pure Nothing
+      JSON.Bool b -> pure (Just b)
+      _ -> jValidationError (JTypeNotOneOf (Set.fromList [JTyBool, JTyNull]))
 
 ----------------------------------------------------------------------------
 -- Aeson integration
