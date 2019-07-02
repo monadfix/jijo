@@ -24,6 +24,12 @@ module Jijo.Definition
     -- ** Validation
     JTy(..),
     JValidationError(..),
+    JValidationReport(..),
+    isEmptyJValidationReport,
+    addJValidationError,
+    scopeJValidationReport,
+    flattenJValidationReport,
+    singletonJValidationReport,
     JValidation,
     jValidationError,
     jValidationFail,
@@ -101,14 +107,6 @@ import Jijo.RecordField
 -- Definition
 ----------------------------------------------------------------------------
 
-newtype ValidationArr e j a =
-  ValidationArr (j -> JValidation e a)
-
-instance Category (ValidationArr e) where
-  id = ValidationArr pure
-  ValidationArr f . ValidationArr g =
-    ValidationArr (jValidationCompose f g)
-
 newtype EncodingArr j a =
   EncodingArr (a -> j)
 
@@ -135,11 +133,11 @@ jEncode (ArrPair _ (EncodingArr eArr)) = eArr
 validateViaDefinition ::
   JDefinition e j a ->
   j ->
-  Either [(JPath, JValidationError e)] a
+  Either (JValidationReport e) a
 validateViaDefinition d j =
-  case runJValidation (jValidate d j) emptyJPathBuilder [] of
-    (Just a, []) -> Right a
-    (_, e) -> Left e
+  case jValidate d j of
+    JValidation (Just a) es | isEmptyJValidationReport es -> Right a
+    JValidation _ es -> Left es
 
 encodeViaDefinition ::
   JDefinition e j a ->
@@ -292,7 +290,7 @@ defineJSum jSumOptions = jDefinition checkSum encodeSum
             lookupLabel label $ \case
               JEnumOption{} -> jValidationError JMalformedSum
               JSumOption f _ jDef ->
-                jValidationLocal (addJPathSegment (JPSField label)) $
+                mapJValidationReport (scopeJValidationReport (JPSField label)) $
                 f <$> jValidate jDef j
           _ -> jValidationError JMalformedSum
       _ -> jValidationError (JTypeNotOneOf allowedTypes)
@@ -427,7 +425,7 @@ parseJSON_viaDefinition ::
   JDefinition String JSON.Value a ->
   JSON.Value -> JSON.Parser a
 parseJSON_viaDefinition d j =
-  either (fail . renderJValidationErrorList) return $
+  either (fail . renderJValidationErrorList . flattenJValidationReport) return $
   validateViaDefinition d j
 
 renderJValidationErrorList ::

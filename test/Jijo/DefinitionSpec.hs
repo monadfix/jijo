@@ -67,7 +67,7 @@ test_stock = describe "Stock definitions" $ do
       let val = validateViaDefinition d j
       case j ^? clonePrism ctr of
         Just x -> val === Right x
-        _ -> val === Left [(JPath [], JTypeNotOneOf (Set.singleton ty))]
+        _ -> val === Left (JValidationReport [JTypeNotOneOf (Set.singleton ty)] mempty)
 
     -- Check that the definition only encodes into JSON values of a certain type
     prop_encodes ::
@@ -116,7 +116,9 @@ test_objects = describe "Object definition machinery" $ do
     sampleDefn :: JDefinition Void Value (Pair Bool (Maybe Bool))
     sampleDefn = defineJObject $
       recPair <$> jField "foo" jBool <*> jFieldOpt "bar" jBool
-    validate = validateViaDefinition sampleDefn
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
     encode = encodeViaDefinition sampleDefn
 
 test_composition :: Spec
@@ -138,21 +140,23 @@ test_composition = describe "Composition of definitions" $ do
     sampleDefn =
       jDefinition (\x -> if x then pure x else jValidationFail "bad") id .
       jBool
-    validate = validateViaDefinition sampleDefn
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
     encode = encodeViaDefinition sampleDefn
 
 test_errors :: Spec
 test_errors = describe "Validation errors" $ do
   it "multiple errors are reported" $
     validate (object [])
-      `shouldBe` Left [(JPath [], JMissingField "neq"),
-                       (JPath [], JMissingField "eq")]
+      `shouldBe` Left [(JPath [], JMissingField "eq"),
+                       (JPath [], JMissingField "neq")]
   it "nested errors are reported correctly" $ do
     validate (object ["eq" .= object ["a" .= True, "b" .= False],
                       "neq" .= object ["b" .= ()]])
-      `shouldBe` Left [(JPath [JPSField "neq", JPSField "b"], JTypeNotOneOf (Set.fromList [JTyBool])),
+      `shouldBe` Left [(JPath [JPSField "eq"], JValidationFail "!="),
                        (JPath [JPSField "neq"], JMissingField "a"),
-                       (JPath [JPSField "eq"], JValidationFail "!=")]
+                       (JPath [JPSField "neq", JPSField "b"], JTypeNotOneOf (Set.fromList [JTyBool]))]
   where
     sampleDefn :: JDefinition Text Value (Pair (Pair Bool Bool) (Pair Bool Bool))
     sampleDefn = defineJObject $ do
@@ -163,7 +167,9 @@ test_errors = describe "Validation errors" $ do
         jDefinition (\p@(Pair a b) -> if a /= b then pure p else jValidationFail "==") id .
         defineJObject (recPair <$> jField "a" jBool <*> jField "b" jBool)
       pure (recPair eq neq)
-    validate = validateViaDefinition sampleDefn
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
 
 test_sums :: Spec
 test_sums = describe "Sum definition machinery" $ do
@@ -189,7 +195,9 @@ test_sums = describe "Sum definition machinery" $ do
     sampleDefn = defineJSum $
       jEnumOption "nothing" _Nothing <>
       jSumOption "just" _Just jBool
-    validate = validateViaDefinition sampleDefn
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
     encode = encodeViaDefinition sampleDefn
 
 ----------------------------------------------------------------------------

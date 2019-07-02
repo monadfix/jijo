@@ -9,36 +9,36 @@
 module Jijo.Validation
   ( JTy(..),
     JValidationError(..),
+    JValidationReport(..),
+    isEmptyJValidationReport,
+    addJValidationError,
+    scopeJValidationReport,
+    flattenJValidationReport,
+    singletonJValidationReport,
     JValidation(..),
     jValidationError,
     jValidationFail,
-    jValidationCompose,
-    jValidationLocal,
     jValidateField,
     jValidateOptField,
     mapJValidationError,
+    mapJValidationReport,
     eitherToJValidation,
+    ValidationArr(..),
   ) where
 
 import Prelude hiding ((.), id)
 import Data.Text (Text)
 import Data.Set (Set)
+import Data.Map (Map)
 import Control.Category
-import Control.Monad
-import Data.Coerce
-import Data.Functor.Identity
-import Data.Functor.Compose
 import Data.Traversable
 import Data.String
 
 import GHC.TypeLits hiding (ErrorMessage(Text))
 import qualified GHC.TypeLits as TypeLits
 
+import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HashMap
-
-import qualified Control.Monad.Trans.Reader as T
-import qualified Control.Monad.Trans.Maybe as T
-import qualified Control.Monad.Trans.State as T
 
 import Jijo.Path
 
@@ -64,47 +64,54 @@ data JValidationError e
 instance IsString e => IsString (JValidationError e) where
   fromString = JValidationFail . fromString
 
-type ErrorList e = [(JPath, JValidationError e)]
+data JValidationReport e =
+  JValidationReport [JValidationError e] (Map JPathSegment (JValidationReport e))
+  deriving stock (Eq, Show)
+  deriving stock Functor
+
+instance Semigroup (JValidationReport e) where
+  JValidationReport es1 fs1 <> JValidationReport es2 fs2 =
+    JValidationReport (es1 <> es2) (Map.unionWith (<>) fs1 fs2)
+
+instance Monoid (JValidationReport e) where
+  mempty = JValidationReport mempty mempty
+
+addJValidationError :: JValidationError e -> JValidationReport e -> JValidationReport e
+addJValidationError e (JValidationReport es fs) = JValidationReport (e:es) fs
+
+scopeJValidationReport :: JPathSegment -> JValidationReport e -> JValidationReport e
+scopeJValidationReport ps es =
+  JValidationReport [] (Map.singleton ps es)
+
+isEmptyJValidationReport :: JValidationReport e -> Bool
+isEmptyJValidationReport (JValidationReport es fs) =
+  null es && all isEmptyJValidationReport fs
+
+flattenJValidationReport :: JValidationReport e -> [(JPath, JValidationError e)]
+flattenJValidationReport = go emptyJPathBuilder
+  where
+    go pb (JValidationReport es fs) =
+      map (\e -> (buildJPath pb, e)) es <>
+      concatMap (goField pb) (Map.toList fs)
+    goField pb (ps, a) =
+      go (addJPathSegment ps pb) a
+
+singletonJValidationReport :: JValidationError e -> JValidationReport e
+singletonJValidationReport e = JValidationReport [e] Map.empty
 
 -- | Validation applicative that grants:
 --
 -- * Access to the current JSON path.
--- * Accumulation of error messages.
+-- * Accumulation of a validation report.
 -- * Possibility of failure.
-newtype JValidation e a =
-  JValidation { runJValidation :: JPathBuilder -> ErrorList e -> (Maybe a, ErrorList e) }
+data JValidation e a =
+  JValidation (Maybe a) (JValidationReport e)
   deriving stock Functor
 
--- JValidation is a composition of applicative functors.
--- We derive the 'Applicative' instance via this representation.
-type JValidationA e =
-  T.Reader JPathBuilder `Compose`
-  T.State (ErrorList e) `Compose`
-  Maybe
-
--- JValidation is a composition of monad transformers.
--- We derive the Kleisli composition via this representation.
-type JValidationM e =
-  T.ReaderT JPathBuilder
-    (T.MaybeT
-      (T.State (ErrorList e)))
-
-type PureSig f a = a -> f a
-type ApSig f a b = f (a -> b) -> f a -> f b
-
-type CoercePureSig f f' =
-  forall a.
-  PureSig f  a ->
-  PureSig f' a
-
-type CoerceApSig f f' =
-  forall a b.
-  ApSig f  a b ->
-  ApSig f' a b
-
 instance Applicative (JValidation e) where
-  pure = (coerce :: CoercePureSig (JValidationA e) (JValidation e)) pure
-  (<*>) = (coerce :: CoerceApSig (JValidationA e) (JValidation e)) (<*>)
+  pure a = JValidation (pure a) mempty
+  JValidation mf es1 <*> JValidation ma es2 =
+    JValidation (mf <*> ma) (es1 <> es2)
 
 type MonadicValidationErrorMessage =
   'TypeLits.Text "Monadic validation is not supported. Fit your definition into" ':$$:
@@ -115,20 +122,22 @@ instance TypeError MonadicValidationErrorMessage => Monad (JValidation e) where
   return = error "return @JValidation: impossible"
   (>>=) = error "(>>=) @JValidation: impossible"
 
-type KleisliCompositionSig m a b c = (b -> m c) -> (a -> m b) -> (a -> m c)
-type CoerceKleisliCompositionSig m m' =
-  forall a b c.
-  KleisliCompositionSig m  a b c ->
-  KleisliCompositionSig m' a b c
+newtype ValidationArr e j a =
+  ValidationArr (j -> JValidation e a)
 
-jValidationCompose :: KleisliCompositionSig (JValidation e) a b c
-jValidationCompose =
-  (coerce :: CoerceKleisliCompositionSig (JValidationM e) (JValidation e)) (<=<)
+instance Category (ValidationArr e) where
+  id = ValidationArr pure
+  ValidationArr f . ValidationArr g =
+    ValidationArr $ \a ->
+      case g a of
+        JValidation Nothing  es1 -> JValidation Nothing es1
+        JValidation (Just b) es1 ->
+          case f b of
+            JValidation mc es2 -> JValidation mc (es1 <> es2)
 
 jValidationError :: JValidationError e -> JValidation e a
 jValidationError e =
-  JValidation $ \pb es ->
-    (Nothing, (buildJPath pb, e):es)
+  JValidation Nothing (JValidationReport [e] mempty)
 
 jValidationFail :: e -> JValidation e a
 jValidationFail = jValidationError . JValidationFail
@@ -136,18 +145,11 @@ jValidationFail = jValidationError . JValidationFail
 eitherToJValidation :: Either e a -> JValidation e a
 eitherToJValidation = either jValidationFail pure
 
-type LocalSig m r a = (r -> r) -> m a -> m a
-
-type CoerceLocalSig m m' =
-  forall r a.
-  LocalSig m  r a ->
-  LocalSig m' r a
-
-jValidationLocal ::
-  (JPathBuilder -> JPathBuilder) ->
-  JValidation e a -> JValidation e a
-jValidationLocal =
-  (coerce :: CoerceLocalSig (JValidationM e) (JValidation e)) T.local
+mapJValidationReport ::
+  (JValidationReport e -> JValidationReport e') ->
+  JValidation e a -> JValidation e' a
+mapJValidationReport f (JValidation a es) =
+  JValidation a (f es)
 
 jValidateField ::
   Text ->
@@ -156,7 +158,7 @@ jValidateField ::
   JValidation e a
 jValidateField fieldName vField o =
   onJust (HashMap.lookup fieldName o) $ \field ->
-    jValidationLocal (addJPathSegment (JPSField fieldName)) $
+    mapJValidationReport (scopeJValidationReport (JPSField fieldName)) $
     vField field
   where
     onJust Nothing _ = jValidationError (JMissingField fieldName)
@@ -169,17 +171,8 @@ jValidateOptField ::
   JValidation e (Maybe a)
 jValidateOptField fieldName vField o =
   for (HashMap.lookup fieldName o) $ \field ->
-    jValidationLocal (addJPathSegment (JPSField fieldName)) $
+    mapJValidationReport (scopeJValidationReport (JPSField fieldName)) $
     vField field
 
 mapJValidationError :: (e -> e') -> JValidation e a -> JValidation e' a
-mapJValidationError f v =
-  JValidation $ \pb es ->
-    let (a, es') = runJValidation v pb []
-    in (a, es ++ mapErrorList f es')
-
-mapErrorList :: (e -> e') -> ErrorList e -> ErrorList e'
-mapErrorList = map . overSnd . fmap @JValidationError
-
-overSnd :: (b -> b') -> (a, b) -> (a, b')
-overSnd = fmap
+mapJValidationError f = mapJValidationReport (fmap f)
