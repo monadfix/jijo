@@ -12,7 +12,7 @@ import Data.Aeson.Lens as JSON
 import Data.Set as Set
 import Data.Scientific as Scientific
 import Data.Vector as Vector
-import Data.Text (Text)
+import Data.Text (Text, toLower)
 
 import Test.Hspec
 import Hedgehog
@@ -36,6 +36,7 @@ spec = do
   test_composition
   test_errors
   test_sums
+  test_nullable
 
 test_stock :: Spec
 test_stock = describe "Stock definitions" $ do
@@ -199,6 +200,45 @@ test_sums = describe "Sum definition machinery" $ do
       over _Left flattenJValidationReport .
       validateViaDefinition sampleDefn
     encode = encodeViaDefinition sampleDefn
+
+data Greeting = Hello | Hi
+  deriving (Eq, Show)
+
+jGreeting :: JDefinition () JSON.Value Greeting
+jGreeting =
+    jDefinition (validateGreeting . toLower) encodeGreeting . jString
+  where
+    encodeGreeting Hello = "hello"
+    encodeGreeting Hi = "hi"
+
+    validateGreeting "hello" = pure Hello
+    validateGreeting "hi" = pure Hi
+    validateGreeting _ = jValidationFail ()
+
+test_nullable :: Spec
+test_nullable = describe "Nullable fields" $ do
+  it "encodes null" $
+    encode Nothing `shouldBe` JSON.Null
+  it "encodes non-null" $
+    encode (Just Hi) `shouldBe` JSON.String "hi"
+  it "validates null" $
+    validate JSON.Null `shouldBe` Right Nothing
+  it "validates non-null" $
+    validate (JSON.String "HeLLo") `shouldBe` Right (Just Hello)
+  it "keeps original error" $
+    validate (JSON.String "nope") `shouldBe`
+      Left [(JPath [], JValidationFail ())]
+  it "reports that null was expected" $
+    validate (JSON.Bool True) `shouldBe`
+      Left [(JPath [], JTypeNotOneOf (Set.fromList [JTyString, JTyNull]))]
+  where
+    sampleDefn :: JDefinition () JSON.Value (Maybe Greeting)
+    sampleDefn = jNullable jGreeting
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
+    encode = encodeViaDefinition sampleDefn
+
 
 ----------------------------------------------------------------------------
 -- Utilities
