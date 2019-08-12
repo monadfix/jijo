@@ -56,6 +56,7 @@ module Jijo.Definition
     jNumber,
     jBool,
     jNullable,
+    jList,
     -- ** Aeson integration
     parseJSON_viaDefinition,
     toJSON_viaDefinition,
@@ -81,6 +82,7 @@ import qualified Data.Map as Map
 import qualified Data.Text as Text
 import qualified Data.List as List
 import qualified Data.DList as DList
+import qualified Data.Vector as Vect
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Aeson.Types as JSON
 
@@ -373,6 +375,14 @@ jNullable jDef = jDefinition validateNullable encodeNullable
     adjustErr (JTypeNotOneOf jtys) =
       JTypeNotOneOf (Set.insert JTyNull jtys)
     adjustErr e = e
+
+jList :: forall e a. JDefinition e JSON.Value a -> JDefinition e JSON.Value [a]
+jList def = jDefinition from to . jArray
+  where
+    from :: JSON.Array -> JValidation e [a]
+    from xs = sequenceA (Vect.toList (Vect.map (jValidate def) xs))
+    to :: [a] -> JSON.Array
+    to = Vect.fromList . map (toJSON_viaDefinition def)
 
 ----------------------------------------------------------------------------
 -- Aeson integration

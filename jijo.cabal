@@ -54,7 +54,8 @@ library
     aeson,
     dlist,
     scientific,
-    template-haskell
+    template-haskell,
+    vector
   hs-source-dirs:
     lib
   default-language:
