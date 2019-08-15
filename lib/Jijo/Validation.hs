@@ -190,7 +190,8 @@ jValidateElements vElement =
 mapJValidationError :: (e -> e') -> JValidation e a -> JValidation e' a
 mapJValidationError f = mapJValidationReport (fmap f)
 
--- Indexed 'traverse' using 'State'
+-- Indexed 'traverse' using 'State'.
+-- Does not require 'Monad' unlike 'Vector.imapM'.
 itraverse :: (Traversable t, Applicative f) => (Int -> a -> f b) -> t a -> f (t b)
 itraverse f s = State.Strict.evalState (getCompose (traverse f' s)) 0
   where f' a = Compose (State.Strict.state (\i -> i `seq` (f i a, i+1)))
