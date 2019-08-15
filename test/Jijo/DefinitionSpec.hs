@@ -38,6 +38,7 @@ spec = do
   test_composition
   test_errors
   test_sums
+  test_enums
   test_nullable
 
 test_stock :: Spec
@@ -225,7 +226,28 @@ test_sums = describe "Sum definition machinery" $ do
     encode = encodeViaDefinition sampleDefn
 
 data Greeting = Hello | Hi
-  deriving (Eq, Show)
+  deriving (Eq, Show, Bounded, Enum)
+
+test_enums :: Spec
+test_enums = describe "Enum definition" $ do
+  it "encodes Hello" $
+    encode Hello `shouldBe` JSON.String "Hello"
+  it "encodes Hi" $
+    encode Hi `shouldBe` JSON.String "Hi"
+  it "validates Hello" $
+    validate (JSON.String "Hello") `shouldBe` Right Hello
+  it "validates Hi" $
+    validate (JSON.String "Hi") `shouldBe` Right Hi
+  it "reports non-label types" $
+    validate (JSON.String "none") `shouldBe`
+      Left [(JPath [], JLabelNotOneOf (Set.fromList ["Hello","Hi"]))]
+  where
+    helloDef :: JDefinition Text JSON.Value Greeting
+    helloDef = defineJEnum [Hello .. ]
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition helloDef
+    encode = encodeViaDefinition helloDef
 
 jGreeting :: JDefinition () JSON.Value Greeting
 jGreeting =

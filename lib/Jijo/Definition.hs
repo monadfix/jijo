@@ -48,6 +48,7 @@ module Jijo.Definition
     jListOf,
     -- ** Defining sums
     defineJSum,
+    defineJEnum,
     jEnumOption,
     jSumOption,
     JSumOption(..),
@@ -329,6 +330,9 @@ defineJSum jSumOptions = jDefinition checkSum encodeSum
       case Map.lookup s jSumOptions of
         Nothing -> jValidationError (JLabelNotOneOf (Map.keysSet jSumOptions))
         Just opt -> cont opt
+
+defineJEnum :: (Show a, Eq a, Bounded a, Enum a) => [a] -> JDefinition e JSON.Value a
+defineJEnum = defineJSum . Map.fromList . map (\x -> (Text.pack (show x), JEnumOption x (== x)))
 
 ----------------------------------------------------------------------------
 -- Stock definitions
