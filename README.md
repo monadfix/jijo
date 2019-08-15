@@ -60,18 +60,18 @@ Decoding, type mismatch:
 
 ```haskell
 > validateViaDefinition jUUID (Number 42)
-Left [(JPath [],JTypeNotOneOf (fromList [JTyString]))]
+Left (JValidationReport [JTypeNotOneOf (fromList [JTyString])] (fromList []))
 ```
 
 Decoding, malformed UUID:
 
 ```haskell
 > validateViaDefinition jUUID (String "invalid")
-Left [(JPath [],JValidationFail InvalidUUID)]
+Left (JValidationReport [JValidationFail InvalidUUID] (fromList []))
 ```
 
-The errors are returned as a flattened list of JSONPaths and
-`JValidationError`s. They can include custom "business logic" errors.
+The errors are returned as a prefix tree of `JValidationError`s indexed by
+`JPathSegment`. They can include domain-specific errors.
 
 ## Implementation Details
 
@@ -80,30 +80,24 @@ The errors are returned as a flattened list of JSONPaths and
 `JValidation` is defined as follows:
 
 ```haskell
-newtype JValidation e a = JValidation
-  { runJValidation
-      :: JPathBuilder
-      -> ErrorList e
-      -> (Maybe a, ErrorList e) }
+data JValidation e a =
+  JValidation (Maybe a) (JValidationReport e)
+
+data JValidationReport e =
+  JValidationReport [JValidationError e] (Map JPathSegment (JValidationReport e))
 ```
 
-The `ErrorList e -> (..., ErrorList e)` bit is writer monad, but with CPS
-applied to avoid leaking.
+* `e` is the type of domain-specific errors.
+* `j` is the validation input (for example, `JSON.Value`)
+* `a` is the validation result.
 
-`JValidationA` and `JValidationM` are isomorphic to `JValidation`, but are
-defined using `Compose` and monad transformers respectively, which gives us
-`Applicative` and `Monad` operations for free. Then we use `coerce` to get:
-
-* an `Applicative` instance for `JValidation`
-* `jValidationCompose` (aka `<=<` for `JValidation`)
-* `jValidationLocal` (aka `local` for `JValidation`)
-
-We don't want to have a `Monad` instance for `JValidation` because it would
-violate the laws.
+The `Applicative` instance for `JValidation` accumulates errors from all
+subcomputations. We don't want to have a `Monad` instance for `JValidation`
+because it would violate the `(<*>) = ap` law.
 
 ### `JDefinition`
 
-`JDefinition` is a composition of a validator and an encoder:
+`JDefinition` is a categorical (arrow) product of a validator and an encoder:
 
 ```haskell
 type JDefinition e = ArrPair (ValidationArr e) EncodingArr
@@ -127,9 +121,9 @@ cases, a `JDefinition` can be built by using the same recipe:
 
 ### `JObjectDefinition`
 
-`JObjectDefinition` is a `Product` of a validator and an encoder. It can be
-converted into a `JDefinition`. It does not have a `Monad` instance but it
-can be used for "parallel" applicative validation – all errors will be
+`JObjectDefinition` is an applicative `Product` of a validator and an encoder.
+It can be converted into a `JDefinition`. It does not have a `Monad` instance
+but it can be used for "parallel" applicative validation – all errors will be
 reported in parallel.
 
 ### `makeRecBuilder`

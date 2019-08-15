@@ -105,7 +105,6 @@ singletonJValidationReport e = JValidationReport [e] Map.empty
 
 -- | Validation applicative that grants:
 --
--- * Access to the current JSON path.
 -- * Accumulation of a validation report.
 -- * Possibility of failure.
 data JValidation e a =
