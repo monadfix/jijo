@@ -43,6 +43,9 @@ module Jijo.Definition
     jFieldOpt,
     inJField,
     inOptJField,
+    -- ** Defining arrays
+    jArrayOf,
+    jListOf,
     -- ** Defining sums
     defineJSum,
     jEnumOption,
@@ -68,6 +71,7 @@ import Data.DList (DList)
 import Data.Scientific (Scientific)
 import Data.Map (Map)
 import Data.Set (Set)
+import Data.Vector (Vector)
 import GHC.TypeLits as TypeLits
 import Control.Monad
 import Control.Category
@@ -81,6 +85,7 @@ import qualified Data.Map as Map
 import qualified Data.Text as Text
 import qualified Data.List as List
 import qualified Data.DList as DList
+import qualified Data.Vector as Vector
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Aeson.Types as JSON
 
@@ -246,8 +251,19 @@ coerceJObjectDefinition ::
 coerceJObjectDefinition (JObjectDefinition (Pair p q)) =
   JObjectDefinition (Pair (coerce p) (coerce q))
 
--- TODO: array support:
--- hackage.haskell.org/package/codec-0.2.1/docs/src/Data-Aeson-Codec.html#asArray
+----------------------------------------------------------------------------
+-- Arrays
+----------------------------------------------------------------------------
+
+jArrayOf :: JDefinition e JSON.Value a -> JDefinition e JSON.Value (Vector a)
+jArrayOf elementDefn = jDefinition validationArr encodingArr . jArray
+  where
+    validationArr = jValidateElements (jValidate elementDefn)
+    encodingArr = Vector.map (jEncode elementDefn)
+
+jListOf :: JDefinition e JSON.Value a -> JDefinition e JSON.Value [a]
+jListOf elementDefn =
+  jDefinition (pure . Vector.toList) Vector.fromList . jArrayOf elementDefn
 
 ----------------------------------------------------------------------------
 -- Sums

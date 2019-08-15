@@ -54,6 +54,7 @@ library
     aeson,
     dlist,
     scientific,
+    vector,
     template-haskell
   hs-source-dirs:
     lib
