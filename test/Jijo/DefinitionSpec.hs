@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Jijo.DefinitionSpec (spec) where
@@ -33,6 +34,7 @@ spec :: Spec
 spec = do
   test_stock
   test_objects
+  test_arrays
   test_composition
   test_errors
   test_sums
@@ -106,7 +108,6 @@ test_objects = describe "Object definition machinery" $ do
     it "reports an error when the field is unparseable" $
       validate (object ["foo" .= True, "bar" .= ()])
         `shouldBe` Left [(JPath [JPSField "bar"], JTypeNotOneOf (Set.fromList [JTyBool]))]
-    -- TODO: do we want to change this?
     it "doesn't allow null in place of a missing field" $
       validate (object ["foo" .= True, "bar" .= JSON.Null])
         `shouldBe` Left [(JPath [JPSField "bar"], JTypeNotOneOf (Set.fromList [JTyBool]))]
@@ -117,6 +118,28 @@ test_objects = describe "Object definition machinery" $ do
     sampleDefn :: JDefinition Void Value (Pair Bool (Maybe Bool))
     sampleDefn = defineJObject $
       recPair <$> jField "foo" jBool <*> jFieldOpt "bar" jBool
+    validate =
+      over _Left flattenJValidationReport .
+      validateViaDefinition sampleDefn
+    encode = encodeViaDefinition sampleDefn
+
+test_arrays :: Spec
+test_arrays = describe "Array definition machinery" $ do
+  let
+    data1234 = [[1,2],[3],[4]]
+    json1234 =
+      JSON.Array [ JSON.Array [JSON.Number 1, JSON.Number 2],
+                   JSON.Array [JSON.Number 3],
+                   JSON.Array [JSON.Number 4] ]
+  it "encodes" $ encode data1234 `shouldBe` json1234
+  it "decodes" $ validate json1234 `shouldBe` Right data1234
+  it "reports proper path" $
+    validate (JSON.Array [JSON.Array [], JSON.Array [], JSON.Array [JSON.Bool True]])
+      `shouldBe` Left [(JPath [JPSIndex 2, JPSIndex 0],
+                        JTypeNotOneOf (Set.fromList [JTyNumber]))]
+  where
+    sampleDefn :: JDefinition Void Value [[Scientific]]
+    sampleDefn = jListOf (jListOf jNumber)
     validate =
       over _Left flattenJValidationReport .
       validateViaDefinition sampleDefn

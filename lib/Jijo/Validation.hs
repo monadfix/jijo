@@ -20,6 +20,7 @@ module Jijo.Validation
     jValidationFail,
     jValidateField,
     jValidateOptField,
+    jValidateElements,
     mapJValidationError,
     mapJValidationReport,
     eitherToJValidation,
@@ -33,12 +34,15 @@ import Data.Map (Map)
 import Control.Category
 import Data.Traversable
 import Data.String
+import Data.Functor.Compose
+import qualified Control.Monad.Trans.State.Strict as State.Strict
 
 import GHC.TypeLits hiding (ErrorMessage(Text))
 import qualified GHC.TypeLits as TypeLits
 
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Vector as Vector
 
 import Jijo.Path
 
@@ -174,5 +178,20 @@ jValidateOptField fieldName vField o =
     mapJValidationReport (scopeJValidationReport (JPSField fieldName)) $
     vField field
 
+jValidateElements ::
+  (j -> JValidation e a) ->
+  Vector.Vector j ->
+  JValidation e (Vector.Vector a)
+jValidateElements vElement =
+  itraverse $ \i element ->
+    mapJValidationReport (scopeJValidationReport (JPSIndex i)) $
+    vElement element
+
 mapJValidationError :: (e -> e') -> JValidation e a -> JValidation e' a
 mapJValidationError f = mapJValidationReport (fmap f)
+
+-- Indexed 'traverse' using 'State'.
+-- Does not require 'Monad' unlike 'Vector.imapM'.
+itraverse :: (Traversable t, Applicative f) => (Int -> a -> f b) -> t a -> f (t b)
+itraverse f s = State.Strict.evalState (getCompose (traverse f' s)) 0
+  where f' a = Compose (State.Strict.state (\i -> i `seq` (f i a, i+1)))
