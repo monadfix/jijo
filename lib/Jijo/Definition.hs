@@ -400,19 +400,21 @@ jNullable jDef = jDefinition validateNullable encodeNullable
 --   parseJSON = parseJSON_viaDefinition jFoo
 -- @
 parseJSON_viaDefinition ::
-  JDefinition String JSON.Value a ->
+  Show e =>
+  JDefinition e JSON.Value a ->
   JSON.Value -> JSON.Parser a
 parseJSON_viaDefinition d j =
   either (fail . renderJValidationErrorList . flattenJValidationReport) return $
   validateViaDefinition d j
 
 renderJValidationErrorList ::
-  [(JPath, JValidationError String)] ->
+  forall e. Show e =>
+  [(JPath, JValidationError e)] ->
   String
 renderJValidationErrorList =
   mconcat . List.intersperse "\n" . map formatError
   where
-    formatError :: (JPath, JValidationError String) -> String
+    formatError :: (JPath, JValidationError e) -> String
     formatError (path, err) =
       (fromString . Text.unpack) (renderJPath path) <> ": " <>
       case err of
@@ -420,7 +422,7 @@ renderJValidationErrorList =
         JLabelNotOneOf jlabels -> "label not one of " <> pprSet (fromString . Text.unpack) jlabels
         JMissingField fname -> "missing field " <> (fromString . Text.unpack) fname
         JMalformedSum -> "malformed sum"
-        JValidationFail e -> fromString e
+        JValidationFail e -> fromString (show e)
     pprSet :: (a -> String) -> Set a -> String
     pprSet pprElem s =
       "{" <> (mconcat . List.intersperse ",") (map pprElem (Set.toList s)) <> "}"
