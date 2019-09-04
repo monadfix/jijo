@@ -38,7 +38,9 @@ module Jijo.Definition
     -- ** Defining objects
     JObjectDefinition,
     jObjectDefinition,
+    jObjectDefinitionEither,
     defineJObject,
+    defineJObjectEither,
     jField,
     jFieldOpt,
     inJField,
@@ -205,8 +207,17 @@ jObjectDefinition objDefn = jDefinition validationArr encodingArr
     validationArr = jObjectValidate objDefn
     encodingArr = HashMap.fromList . DList.toList . jObjectEncode objDefn
 
+jObjectDefinitionEither :: JObjectDefinition e o (Either e o) -> JDefinition e JSON.Object o
+jObjectDefinitionEither objDefn = ArrPair validationArr encodingArr
+  where
+    validationArr = ValidationArr eitherToJValidation . ValidationArr (jObjectValidate objDefn)
+    encodingArr = EncodingArr (HashMap.fromList . DList.toList . jObjectEncode objDefn)
+
 defineJObject :: JObjectDefinition e o o -> JDefinition e JSON.Value o
 defineJObject objDefn = jObjectDefinition objDefn . jObject
+
+defineJObjectEither :: JObjectDefinition e o (Either e o) -> JDefinition e JSON.Value o
+defineJObjectEither objDefn = jObjectDefinitionEither objDefn . jObject
 
 inJField :: Text -> (o -> a) -> JDefinition e JSON.Value a -> JObjectDefinition e o a
 inJField fieldName getField fieldDef = mkJObjectDefinition objValidate objEncode

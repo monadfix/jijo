@@ -13,7 +13,7 @@ import Data.Aeson.Lens as JSON
 import Data.Set as Set
 import Data.Scientific as Scientific
 import Data.Vector as Vector
-import Data.Text (Text, toLower)
+import Data.Text as Text
 
 import Test.Hspec
 import Hedgehog
@@ -262,6 +262,29 @@ test_nullable = describe "Nullable fields" $ do
       validateViaDefinition sampleDefn
     encode = encodeViaDefinition sampleDefn
 
+data SmartErr = N_gt_2
+
+data Smart = MkSmart Int Text
+
+mkSmart :: Text -> Text -> Either SmartErr Smart
+mkSmart s1 s2 =
+  if n > 2 then Left N_gt_2
+           else Right (MkSmart n (s1 <> s2))
+  where n = Text.length s1
+
+getSmartPrefix :: Smart -> Text
+getSmartPrefix (MkSmart n s) = Text.take n s
+
+getSmartSuffix :: Smart -> Text
+getSmartSuffix (MkSmart n s) = Text.drop n s
+
+-- TODO: test case.
+_jSmart :: JDefinition SmartErr JSON.Value Smart
+_jSmart =
+  defineJObjectEither $
+    mkSmart
+      <$> inJField "prefix" getSmartPrefix jString
+      <*> inJField "suffix" getSmartSuffix jString
 
 ----------------------------------------------------------------------------
 -- Utilities
