@@ -6,7 +6,7 @@ module Jijo.RecordField.TH
   ) where
 
 import Data.List (foldl')
-import Control.Monad (when, mapM)
+import Control.Monad (when)
 import qualified Language.Haskell.TH as TH
 import Data.Coerce
 import Jijo.RecordField
@@ -39,7 +39,7 @@ makeRecBuilder prefixStr tyName = do
           "Field name " ++ fieldNameStr ++
           " does not have the expected prefix " ++ prefixStr
       return (strippedFieldNameStr, fieldTy)
-  fields <- mapM mkField vbts
+  fields <- traverse mkField vbts
   let
     builderName = TH.mkName ("rec" ++ TH.nameBase conName)
     mkFieldArg (fieldNameStr, fieldTy) =

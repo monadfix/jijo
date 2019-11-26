@@ -16,8 +16,10 @@ module Jijo.Validation
     flattenJValidationReport,
     singletonJValidationReport,
     JValidation(..),
+    jValidationWarning,
     jValidationError,
     jValidationFail,
+    jRejectExtraFields,
     jValidateField,
     jValidateOptField,
     jValidateElements,
@@ -30,8 +32,10 @@ module Jijo.Validation
 import Prelude hiding ((.), id)
 import Data.Text (Text)
 import Data.Set (Set)
+import Data.HashSet (HashSet)
 import Data.Map (Map)
 import Control.Category
+import Data.Foldable
 import Data.Traversable
 import Data.String
 import Data.Functor.Compose
@@ -42,6 +46,7 @@ import qualified GHC.TypeLits as TypeLits
 
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import qualified Data.Vector as Vector
 
 import Jijo.Path
@@ -60,6 +65,7 @@ data JValidationError e
   = JTypeNotOneOf (Set JTy)
   | JLabelNotOneOf (Set Text)
   | JMissingField Text
+  | JExtraField Text
   | JMalformedSum
   | JValidationFail e
   deriving stock (Eq, Show)
@@ -138,6 +144,10 @@ instance Category (ValidationArr e) where
           case f b of
             JValidation mc es2 -> JValidation mc (es1 <> es2)
 
+jValidationWarning :: JValidationError e -> JValidation e ()
+jValidationWarning e =
+  JValidation (Just ()) (JValidationReport [e] mempty)
+
 jValidationError :: JValidationError e -> JValidation e a
 jValidationError e =
   JValidation Nothing (JValidationReport [e] mempty)
@@ -153,6 +163,18 @@ mapJValidationReport ::
   JValidation e a -> JValidation e' a
 mapJValidationReport f (JValidation a es) =
   JValidation a (f es)
+
+jRejectExtraFields ::
+  HashSet Text ->
+  HashMap.HashMap Text j ->
+  JValidation e ()
+jRejectExtraFields allowedFields obj =
+  traverse_
+    (\fname -> jValidationWarning (JExtraField fname))
+    (HashSet.toList extraFields)
+  where
+    objFields = HashMap.keysSet obj
+    extraFields = HashSet.difference objFields allowedFields
 
 jValidateField ::
   Text ->
