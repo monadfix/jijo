@@ -42,6 +42,7 @@ module Jijo.Definition
     jObjectDefinitionEither,
     defineJObject,
     defineJObjectEither,
+    allowExtraFields,
     jField,
     jFieldOpt,
     inJField,
@@ -74,6 +75,7 @@ import Data.DList (DList)
 import Data.Scientific (Scientific)
 import Data.Map (Map)
 import Data.Set (Set)
+import Data.HashSet (HashSet)
 import Data.Vector (Vector)
 import GHC.TypeLits as TypeLits
 import Control.Monad
@@ -90,6 +92,7 @@ import qualified Data.List as List
 import qualified Data.DList as DList
 import qualified Data.Vector as Vector
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import qualified Data.Aeson.Types as JSON
 
 import qualified Control.Monad.Trans.Reader as T
@@ -164,9 +167,30 @@ mapJError f (ArrPair (ValidationArr toB) fromB) =
 -- Objects
 ----------------------------------------------------------------------------
 
+data ObjSchema =
+  ObjSchema
+    { objSchemaFields :: HashSet Text,
+      objSchemaAllowExtraFields :: Bool
+    }
+
+instance Semigroup ObjSchema where
+  s1 <> s2 =
+    ObjSchema
+      { objSchemaFields = HashSet.union (objSchemaFields s1) (objSchemaFields s2),
+        objSchemaAllowExtraFields = objSchemaAllowExtraFields s1 || objSchemaAllowExtraFields s2
+      }
+
+instance Monoid ObjSchema where
+  mempty =
+    ObjSchema
+      { objSchemaFields = HashSet.empty,
+        objSchemaAllowExtraFields = False
+      }
+
 type ObjValidationAp e = T.ReaderT JSON.Object (JValidation e)
 type ObjEncodingAp o = Const (o -> DList JSON.Pair)
-type ObjDefinitionAp e o = Product (ObjValidationAp e) (ObjEncodingAp o)
+type ObjSchemaAp = Const ObjSchema
+type ObjDefinitionAp e o = Product (Product ObjSchemaAp (ObjValidationAp e)) (ObjEncodingAp o)
 
 -- | Auxiliary type for describing objects, suitable for use with
 -- applicative notation. Usually it will be immediately fed into
@@ -181,17 +205,22 @@ newtype JObjectDefinition e o a =
   deriving newtype (Functor, Applicative)
 
 jObjectValidate :: JObjectDefinition e o a -> JSON.Object -> JValidation e a
-jObjectValidate (JObjectDefinition (Pair (T.ReaderT vAp) _)) = vAp
+jObjectValidate (JObjectDefinition (Pair (Pair (Const objSchema) (T.ReaderT vAp)) _)) obj =
+  unless
+    (objSchemaAllowExtraFields objSchema)
+    (jRejectExtraFields (objSchemaFields objSchema) obj) *>
+  vAp obj
 
 jObjectEncode :: JObjectDefinition e o a -> o -> DList JSON.Pair
 jObjectEncode (JObjectDefinition (Pair _ (Const eAp))) = eAp
 
 mkJObjectDefinition ::
+  ObjSchema ->
   (JSON.Object -> JValidation e a) ->
   (o -> DList JSON.Pair) ->
   JObjectDefinition e o a
-mkJObjectDefinition objValidate objEncode =
-  JObjectDefinition (Pair (T.ReaderT objValidate) (Const objEncode))
+mkJObjectDefinition objSchema objValidate objEncode =
+  JObjectDefinition (Pair (Pair (Const objSchema) (T.ReaderT objValidate)) (Const objEncode))
 
 type MonadicObjectErr =
   'TypeLits.Text "Monadic object definition is not supported. Fit your definition into" ':$$:
@@ -214,6 +243,12 @@ jObjectDefinitionEither objDefn = ArrPair validationArr encodingArr
     validationArr = ValidationArr eitherToJValidation . ValidationArr (jObjectValidate objDefn)
     encodingArr = EncodingArr (HashMap.fromList . DList.toList . jObjectEncode objDefn)
 
+allowExtraFields :: JObjectDefinition e o a -> JObjectDefinition e o a
+allowExtraFields (JObjectDefinition (Pair (Pair (Const objSchema) objValidate) objEncode)) =
+  JObjectDefinition (Pair (Pair (Const objSchema') objValidate) objEncode)
+  where
+    objSchema' = objSchema { objSchemaAllowExtraFields = True }
+
 defineJObject :: JObjectDefinition e o o -> JDefinition e JSON.Value o
 defineJObject objDefn = jObjectDefinition objDefn . jObject
 
@@ -221,14 +256,16 @@ defineJObjectEither :: JObjectDefinition e o (Either e o) -> JDefinition e JSON.
 defineJObjectEither objDefn = jObjectDefinitionEither objDefn . jObject
 
 inJField :: Text -> (o -> a) -> JDefinition e JSON.Value a -> JObjectDefinition e o a
-inJField fieldName getField fieldDef = mkJObjectDefinition objValidate objEncode
+inJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValidate objEncode
   where
+    objSchema = mempty { objSchemaFields = HashSet.singleton fieldName }
     objValidate = jValidateField fieldName (jValidate fieldDef)
     objEncode o = DList.singleton (fieldName, jEncode fieldDef (getField o))
 
 inOptJField :: Text -> (o -> Maybe a) -> JDefinition e JSON.Value a -> JObjectDefinition e o (Maybe a)
-inOptJField fieldName getField fieldDef = mkJObjectDefinition objValidate objEncode
+inOptJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValidate objEncode
   where
+    objSchema = mempty { objSchemaFields = HashSet.singleton fieldName }
     objValidate = jValidateOptField fieldName (jValidate fieldDef)
     objEncode o = case getField o of
       Nothing -> DList.empty
@@ -260,8 +297,8 @@ coerceJObjectDefinition ::
   Coercible a b =>
   JObjectDefinition e o a ->
   JObjectDefinition e o b
-coerceJObjectDefinition (JObjectDefinition (Pair p q)) =
-  JObjectDefinition (Pair (coerce p) (coerce q))
+coerceJObjectDefinition (JObjectDefinition (Pair (Pair s p) q)) =
+  JObjectDefinition (Pair (Pair (coerce s) (coerce p)) (coerce q))
 
 ----------------------------------------------------------------------------
 -- Arrays
@@ -431,6 +468,7 @@ renderJValidationErrorList =
         JTypeNotOneOf jtys -> "type not one of " <> pprSet pprJTy jtys
         JLabelNotOneOf jlabels -> "label not one of " <> pprSet (fromString . Text.unpack) jlabels
         JMissingField fname -> "missing field " <> (fromString . Text.unpack) fname
+        JExtraField fname -> "extra field " <> (fromString . Text.unpack) fname
         JMalformedSum -> "malformed sum"
         JValidationFail e -> fromString e
     pprSet :: (a -> String) -> Set a -> String

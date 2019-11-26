@@ -94,6 +94,12 @@ test_objects = describe "Object definition machinery" $ do
   it "fails when the value is not an object" $ do
     validate (JSON.Bool True)
       `shouldBe` Left [(JPath [], JTypeNotOneOf (Set.fromList [JTyObject]))]
+  it "warns on extra fields" $ do
+    validate (object ["foo" .= True, "bar" .= False, "quux" .= True])
+      `shouldBe` Left [(JPath [], JExtraField "quux")]
+  it "allows extra fields" $ do
+    validateExtraFieldsOk (object ["foo" .= True, "bar" .= False, "quux" .= True])
+      `shouldBe` Right (Pair True (Just False))
   describe "inJField" $ do
     it "reports an error when the field is not found" $
       validate (object ["bar" .= True])
@@ -115,13 +121,16 @@ test_objects = describe "Object definition machinery" $ do
       encode (Pair True Nothing)
         `shouldBe` object ["foo" .= True]
   where
-    sampleDefn :: JDefinition Void Value (Pair Bool (Maybe Bool))
-    sampleDefn = defineJObject $
+    sampleDefn :: Bool -> JDefinition Void Value (Pair Bool (Maybe Bool))
+    sampleDefn extraFieldsOk = defineJObject $
+      (if extraFieldsOk then allowExtraFields else id) $
       recPair <$> jField "foo" jBool <*> jFieldOpt "bar" jBool
-    validate =
+    validate' extraFieldsOk =
       over _Left flattenJValidationReport .
-      validateViaDefinition sampleDefn
-    encode = encodeViaDefinition sampleDefn
+      validateViaDefinition (sampleDefn extraFieldsOk)
+    validate = validate' False
+    validateExtraFieldsOk = validate' True
+    encode = encodeViaDefinition (sampleDefn False)
 
 test_arrays :: Spec
 test_arrays = describe "Array definition machinery" $ do
