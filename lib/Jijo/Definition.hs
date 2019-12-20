@@ -12,7 +12,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- A framework for building JSON schemas that can be used to perform both
+-- | A framework for building JSON schemas that can be used to perform both
 -- validation and serialization.
 module Jijo.Definition
   ( -- * Core
@@ -21,22 +21,23 @@ module Jijo.Definition
     validateViaDefinition,
     encodeViaDefinition,
     mapJError,
-    -- ** Validation
+    EncodingArr(..),
+    ArrPair(..),
+    -- * Validation
     JTy(..),
     JValidationError(..),
     JValidationReport(..),
     isEmptyJValidationReport,
-    addJValidationError,
     scopeJValidationReport,
     flattenJValidationReport,
-    singletonJValidationReport,
+    renderJValidationReport,
+    renderJValidationErrorList,
     JValidation,
     jValidationError,
     jValidationFail,
     mapJValidationError,
     eitherToJValidation,
-    renderJValidationErrorList,
-    -- ** Defining objects
+    -- * Defining objects
     JObjectDefinition,
     jObjectDefinition,
     jObjectDefinitionEither,
@@ -47,23 +48,23 @@ module Jijo.Definition
     jFieldOpt,
     inJField,
     inOptJField,
-    -- ** Defining arrays
+    -- * Defining arrays
     jArrayOf,
     jListOf,
-    -- ** Defining sums
+    -- * Defining sums
     defineJSum,
     jEnumOption,
     jSumOption,
     JSumOption(..),
     JSumException(..),
-    -- ** Stock definitions
+    -- * Stock definitions
     jObject,
     jArray,
     jString,
     jNumber,
     jBool,
     jNullable,
-    -- ** Aeson integration
+    -- * Aeson integration
     parseJSON_viaDefinition,
     toJSON_viaDefinition,
     aesonJDefinition,
@@ -74,7 +75,6 @@ import Data.Text (Text)
 import Data.DList (DList)
 import Data.Scientific (Scientific)
 import Data.Map (Map)
-import Data.Set (Set)
 import Data.HashSet (HashSet)
 import Data.Vector (Vector)
 import GHC.TypeLits as TypeLits
@@ -82,13 +82,10 @@ import Control.Monad
 import Control.Category
 import Data.Coerce
 import Data.Maybe
-import Data.String
 import Control.Exception (Exception, throw)
 
-import qualified Data.Set as Set
 import qualified Data.Map as Map
-import qualified Data.Text as Text
-import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Data.DList as DList
 import qualified Data.Vector as Vector
 import qualified Data.HashMap.Strict as HashMap
@@ -114,6 +111,7 @@ import Jijo.RecordField
 -- Definition
 ----------------------------------------------------------------------------
 
+-- | Encode @a@ as @j@.
 newtype EncodingArr j a =
   EncodingArr (a -> j)
 
@@ -121,6 +119,7 @@ instance Category EncodingArr where
   id = EncodingArr id
   EncodingArr f . EncodingArr g = EncodingArr (g . f)
 
+-- | A pair of arrows, i.e. the product of two categories.
 data ArrPair p q j a = ArrPair (p j a) (q j a)
 
 instance (Category p, Category q) => Category (ArrPair p q) where
@@ -137,6 +136,8 @@ jValidate (ArrPair (ValidationArr vArr) _) = vArr
 jEncode :: JDefinition e j a -> a -> j
 jEncode (ArrPair _ (EncodingArr eArr)) = eArr
 
+-- | Validate @j@ against a schema, producing either a validation report (in
+-- case of failure) or a value of type @a@ (in case of success).
 validateViaDefinition ::
   JDefinition e j a ->
   j ->
@@ -146,6 +147,7 @@ validateViaDefinition d j =
     JValidation (Just a) es | isEmptyJValidationReport es -> Right a
     JValidation _ es -> Left es
 
+-- | Serialize @a@ into @j@.
 encodeViaDefinition ::
   JDefinition e j a ->
   a ->
@@ -159,6 +161,7 @@ jDefinition ::
   JDefinition e a b
 jDefinition toB fromB = ArrPair (ValidationArr toB) (EncodingArr fromB)
 
+-- | Modify domain-specific validation errors produced in 'JDefinition'.
 mapJError :: (e -> e') -> JDefinition e a b -> JDefinition e' a b
 mapJError f (ArrPair (ValidationArr toB) fromB) =
   ArrPair (ValidationArr (mapJValidationError f . toB)) fromB
@@ -231,30 +234,52 @@ instance TypeError MonadicObjectErr => Monad (JObjectDefinition e o) where
   return = error "return @ JObjectDefinition: impossible"
   (>>=) = error "(>>=) @ JObjectDefinition: impossible"
 
+-- | Construct 'JDefinition' from 'JObjectDefinition'.
 jObjectDefinition :: JObjectDefinition e o o -> JDefinition e JSON.Object o
 jObjectDefinition objDefn = jDefinition validationArr encodingArr
   where
     validationArr = jObjectValidate objDefn
     encodingArr = HashMap.fromList . DList.toList . jObjectEncode objDefn
 
+-- | Construct 'JDefinition' from 'JObjectDefinition' with an additional validation step.
 jObjectDefinitionEither :: JObjectDefinition e o (Either e o) -> JDefinition e JSON.Object o
 jObjectDefinitionEither objDefn = ArrPair validationArr encodingArr
   where
     validationArr = ValidationArr eitherToJValidation . ValidationArr (jObjectValidate objDefn)
     encodingArr = EncodingArr (HashMap.fromList . DList.toList . jObjectEncode objDefn)
 
+-- | Disable warnings when the JSON object has unexpected fields.
 allowExtraFields :: JObjectDefinition e o a -> JObjectDefinition e o a
 allowExtraFields (JObjectDefinition (Pair (Pair (Const objSchema) objValidate) objEncode)) =
   JObjectDefinition (Pair (Pair (Const objSchema') objValidate) objEncode)
   where
     objSchema' = objSchema { objSchemaAllowExtraFields = True }
 
+-- | Create a 'JDefinition' for JSON objects:
+--
+-- @
+-- data User =
+--   MkUser { _userId :: UUID,
+--            _userName :: Text,
+--            _userAddr :: Text
+--          }
+--
+-- 'Jijo.RecordField.TH.makeRecBuilder' \"_user\" ''User
+--
+-- jUser = 'defineJObject' $
+--   pure recUser  -- recUser generated by 'Jijo.RecordField.TH.makeRecBuilder'
+--     \<*\> 'jField' \@\"Id\"    \"id\"    jUUID
+--     \<*\> 'jField' \@\"Email\" \"email\" jText
+--     \<*\> 'jField' \@\"Name\"  \"name\"  jText
+-- @
 defineJObject :: JObjectDefinition e o o -> JDefinition e JSON.Value o
 defineJObject objDefn = jObjectDefinition objDefn . jObject
 
+-- | Create a 'JDefinition' for JSON objects, with an additional validation step.
 defineJObjectEither :: JObjectDefinition e o (Either e o) -> JDefinition e JSON.Value o
 defineJObjectEither objDefn = jObjectDefinitionEither objDefn . jObject
 
+-- | Validate/encode a required object field.
 inJField :: Text -> (o -> a) -> JDefinition e JSON.Value a -> JObjectDefinition e o a
 inJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValidate objEncode
   where
@@ -262,6 +287,7 @@ inJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValidate
     objValidate = jValidateField fieldName (jValidate fieldDef)
     objEncode o = DList.singleton (fieldName, jEncode fieldDef (getField o))
 
+-- | Validate/encode an optional object field.
 inOptJField :: Text -> (o -> Maybe a) -> JDefinition e JSON.Value a -> JObjectDefinition e o (Maybe a)
 inOptJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValidate objEncode
   where
@@ -271,6 +297,7 @@ inOptJField fieldName getField fieldDef = mkJObjectDefinition objSchema objValid
       Nothing -> DList.empty
       Just val -> DList.singleton (fieldName, jEncode fieldDef val)
 
+-- | Validate/encode a required object field using the 'Field' machinery.
 jField ::
   forall name prefix e o a.
   Rec.HasField (AppendSymbol prefix name) o a =>
@@ -282,6 +309,7 @@ jField fieldName fieldDef =
     (Rec.getField @(AppendSymbol prefix name) @o @a)
     fieldDef
 
+-- | Validate/encode an optional object field using the 'Field' machinery.
 jFieldOpt ::
   forall name prefix e o a.
   Rec.HasField (AppendSymbol prefix name) o (Maybe a) =>
@@ -304,12 +332,14 @@ coerceJObjectDefinition (JObjectDefinition (Pair (Pair s p) q)) =
 -- Arrays
 ----------------------------------------------------------------------------
 
+-- | Validate/encode a JSON array.
 jArrayOf :: JDefinition e JSON.Value a -> JDefinition e JSON.Value (Vector a)
 jArrayOf elementDefn = jDefinition validationArr encodingArr . jArray
   where
     validationArr = jValidateElements (jValidate elementDefn)
     encodingArr = Vector.map (jEncode elementDefn)
 
+-- | Validate/encode a JSON array, via a list.
 jListOf :: JDefinition e JSON.Value a -> JDefinition e JSON.Value [a]
 jListOf elementDefn =
   jDefinition (pure . Vector.toList) Vector.fromList . jArrayOf elementDefn
@@ -318,10 +348,14 @@ jListOf elementDefn =
 -- Sums
 ----------------------------------------------------------------------------
 
+-- | Validation/encoding of a sum constructor.
 data JSumOption e a
   = JEnumOption a (a -> Bool)
   | forall b. JSumOption (b -> a) (a -> Maybe b) (JDefinition e JSON.Value b)
 
+-- | An exception indicative of an invalid schema for a sum type. If you
+-- encounter it, check that there are no duplicate labels in your inputs to
+-- 'defineJSum'.
 data JSumException
   = JSumNoEncoding
   | JSumAmbiguousEncoding
@@ -329,14 +363,42 @@ data JSumException
 
 instance Exception JSumException
 
+-- | A constructor of a sum type with no attached data:
+--
+-- @
+-- jSign = 'defineJSum' $
+--   'jEnumOption' \"+\" _True <>
+--   'jEnumOption' \"-\" _False
+-- @
+--
+-- The above definition accepts JSON strings @\"+\"@ and @\"-\"@.
 jEnumOption :: Text -> Prism' a () -> Map Text (JSumOption e a)
 jEnumOption label p =
   Map.singleton label (JEnumOption (review p ()) (isJust . preview p))
 
+-- | A constructor of a sum type with data attached:
+--
+-- @
+-- jEither jLeft jRight = 'defineJSum' $
+--   'jSumOption' \"left\"  _Left  jLeft  <>
+--   'jSumOption' \"right\" _Right jRight
+-- @
+--
+-- The above definition accepts JSON objects of the form @{ \"left\": ... }@ and @{ \"right\": ... }@.
 jSumOption :: Text -> Prism' a b -> JDefinition e JSON.Value b -> Map Text (JSumOption e a)
 jSumOption label p jDef =
   Map.singleton label (JSumOption (review p) (preview p) jDef)
 
+-- | Create a 'JDefinition' for sum types:
+--
+-- @
+--  jMaybe jJust = 'defineJSum' $
+--    'jEnumOption' \"nothing\" _Nothing <>
+--    'jSumOption' \"just\" _Just jJust
+-- @
+--
+-- The above definition accepts JSON objects of the form @{ \"just\": ... }@
+-- and the JSON string @\"nothing\"@.
 defineJSum :: Map Text (JSumOption e a) -> JDefinition e JSON.Value a
 defineJSum jSumOptions = jDefinition checkSum encodeSum
   where
@@ -383,6 +445,7 @@ defineJSum jSumOptions = jDefinition checkSum encodeSum
 -- Stock definitions
 ----------------------------------------------------------------------------
 
+-- | Validate/encode a JSON object.
 jObject :: JDefinition e JSON.Value JSON.Object
 jObject = jDefinition checkObject JSON.Object
   where
@@ -390,6 +453,7 @@ jObject = jDefinition checkObject JSON.Object
       JSON.Object o -> pure o
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyObject))
 
+-- | Validate/encode a JSON array.
 jArray :: JDefinition e JSON.Value JSON.Array
 jArray = jDefinition checkArray JSON.Array
   where
@@ -397,6 +461,7 @@ jArray = jDefinition checkArray JSON.Array
       JSON.Array a -> pure a
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyArray))
 
+-- | Validate/encode a JSON string.
 jString :: JDefinition e JSON.Value Text
 jString = jDefinition checkString JSON.String
   where
@@ -404,6 +469,7 @@ jString = jDefinition checkString JSON.String
       JSON.String s -> pure s
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyString))
 
+-- | Validate/encode a JSON number.
 jNumber :: JDefinition e JSON.Value Scientific
 jNumber = jDefinition checkNumber JSON.Number
   where
@@ -411,6 +477,7 @@ jNumber = jDefinition checkNumber JSON.Number
       JSON.Number n -> pure n
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyNumber))
 
+-- | Validate/encode a JSON boolean.
 jBool :: JDefinition e JSON.Value Bool
 jBool = jDefinition checkBool JSON.Bool
   where
@@ -418,8 +485,15 @@ jBool = jDefinition checkBool JSON.Bool
       JSON.Bool b -> pure b
       _ -> jValidationError (JTypeNotOneOf (Set.singleton JTyBool))
 
--- | 'jNullable' assumses that the input definition is disjoint with 'null'. As
--- a consequence, @jNullable (jNullable ...)@ is a programmer mistake.
+-- | Validate/encode a nullable JSON value.
+--
+-- 'jNullable' assumses that the inner definition does not accept or produce
+-- @null@. As a consequence, one should be careful not to nest this combinator:
+--
+-- @
+-- jNullable (jNullable ...)  -- don't!
+-- @
+--
 jNullable :: JDefinition e JSON.Value a -> JDefinition e JSON.Value (Maybe a)
 jNullable jDef = jDefinition validateNullable encodeNullable
   where
@@ -444,63 +518,42 @@ jNullable jDef = jDefinition validateNullable encodeNullable
 ----------------------------------------------------------------------------
 
 -- | Default definition for 'JSON.FromJSON':
+--
 -- @
 -- instance FromJSON Foo where
 --   parseJSON = parseJSON_viaDefinition jFoo
 -- @
+--
 parseJSON_viaDefinition ::
   JDefinition String JSON.Value a ->
   JSON.Value -> JSON.Parser a
 parseJSON_viaDefinition d j =
-  either (fail . renderJValidationErrorList . flattenJValidationReport) return $
+  either (fail . renderJValidationReport) return $
   validateViaDefinition d j
 
-renderJValidationErrorList ::
-  [(JPath, JValidationError String)] ->
-  String
-renderJValidationErrorList =
-  mconcat . List.intersperse "\n" . map formatError
-  where
-    formatError :: (JPath, JValidationError String) -> String
-    formatError (path, err) =
-      (fromString . Text.unpack) (renderJPath path) <> ": " <>
-      case err of
-        JTypeNotOneOf jtys -> "type not one of " <> pprSet pprJTy jtys
-        JLabelNotOneOf jlabels -> "label not one of " <> pprSet (fromString . Text.unpack) jlabels
-        JMissingField fname -> "missing field " <> (fromString . Text.unpack) fname
-        JExtraField fname -> "extra field " <> (fromString . Text.unpack) fname
-        JMalformedSum -> "malformed sum"
-        JValidationFail e -> fromString e
-    pprSet :: (a -> String) -> Set a -> String
-    pprSet pprElem s =
-      "{" <> (mconcat . List.intersperse ",") (map pprElem (Set.toList s)) <> "}"
-    pprJTy :: JTy -> String
-    pprJTy = \case
-      JTyObject -> "object"
-      JTyArray -> "array"
-      JTyString -> "string"
-      JTyNumber -> "number"
-      JTyBool -> "bool"
-      JTyNull -> "null"
-
 -- | Default definition for 'JSON.ToJSON':
+--
 -- @
 -- instance ToJSON Foo where
 --   toJSON = toJSON_viaDefinition jFoo
 -- @
+--
 toJSON_viaDefinition ::
   JDefinition e JSON.Value a ->
   a -> JSON.Value
 toJSON_viaDefinition = jEncode
 
+-- | A 'JDefinition' that arises from 'JSON.FromJSON' and 'JSON.ToJSON'.
+--
+-- prop> parseJSON_viaDefinition aesonJDefinition = parseJSON
+-- prop> toJSON_viaDefinition aesonJDefinition = toJSON
+--
 aesonJDefinition ::
   (JSON.FromJSON a, JSON.ToJSON a) =>
   JDefinition String JSON.Value a
 aesonJDefinition = jDefinition toB fromB
   where
-    toB j =
-      either jValidationFail pure $
-      JSON.parseEither JSON.parseJSON j
+    toB = eitherToJValidation . JSON.parseEither JSON.parseJSON
     fromB = JSON.toJSON
 
 ----------------------------------------------------------------------------
