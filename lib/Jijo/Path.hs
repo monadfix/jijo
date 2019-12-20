@@ -1,7 +1,21 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | JSONPath definition and rendering.
+-- | JSONPath definition and rendering:
+--
+-- @
+-- b :: 'JPathBuilder'
+-- b = 'addJPathSegment' ('JPSIndex' 3) $
+--     'addJPathSegment' ('JPSField' "fld") $
+--     'addJPathSegment' ('JPSField' "dlf") $
+--     'emptyJPathBuilder'
+--
+-- p :: 'JPath'
+-- p = 'buildJPath' b
+--
+-- ghci> 'renderJPath' p
+-- "$.dlf.fld[3]"
+-- @
 module Jijo.Path
   ( -- * Paths
     JPath(..),
@@ -22,19 +36,21 @@ import qualified Data.List as List
 import qualified Data.Text as Text
 
 -- | A single JSONPath segment.
-data JPathSegment =
-  JPSField Text | JPSIndex Int
+data JPathSegment
+  = JPSField Text  -- ^ Record field name
+  | JPSIndex Int   -- ^ Array element index
   deriving (Eq, Ord, Show)
 
 -- | A complete JSONPath.
 newtype JPath = JPath [JPathSegment]
   deriving (Eq, Ord, Show)
 
--- | JSONPath segments in reverse order. Useful for fast construction of
--- paths.
+-- | JSONPath segments in reverse order. Useful for fast construction of paths
+-- by appending path segments.
 newtype JPathBuilder = JPathBuilder [JPathSegment]
   deriving (Eq, Show)
 
+-- | A 'JPathBuilder' that does not contain any path segments.
 emptyJPathBuilder :: JPathBuilder
 emptyJPathBuilder = JPathBuilder []
 
@@ -42,9 +58,11 @@ emptyJPathBuilder = JPathBuilder []
 addJPathSegment :: JPathSegment -> JPathBuilder -> JPathBuilder
 addJPathSegment ps (JPathBuilder pss) = JPathBuilder (ps:pss)
 
+-- | Finish building a JSONPath. \( O(n) \) in the amount of segments.
 buildJPath :: JPathBuilder -> JPath
 buildJPath (JPathBuilder pss) = JPath (List.reverse pss)
 
+-- | Render a JSONPath as text.
 renderJPath :: JPath -> Text
 renderJPath (JPath ps) = "$" <> foldMap formatSegment ps
   where

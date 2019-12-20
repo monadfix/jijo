@@ -8,7 +8,7 @@ description:
   .
   Features include:
   .
-  * Schema is independent from the types unlike derived instances.
+  * Schema is independent from the domain types, unlike derived instances.
   * Bidirectional definitions, no risk for serialization/deserialization code
     to get out of sync.
   * Structured validation errors, not strings.

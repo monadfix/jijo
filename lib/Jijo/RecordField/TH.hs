@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Template Haskell utilities for 'Field'.
 module Jijo.RecordField.TH
   ( module Jijo.RecordField,
     makeRecBuilder
@@ -11,6 +12,28 @@ import qualified Language.Haskell.TH as TH
 import Data.Coerce
 import Jijo.RecordField
 
+-- | Generate a smart constructor for a record that expects every field to be
+-- wrapped in the 'Field' newtype.
+--
+-- Consider this record:
+-- @
+-- data User =
+--   MkUser { _userId :: UUID,
+--            _userName :: Text,
+--            _userAddr :: Text
+--          }
+-- @
+--
+-- @'makeRecBuilder' \"_user\" ''User@ generates the following function:
+--
+-- @
+-- recUser ::
+--   'Field' \"_user\" \"Id\"   UUID ->
+--   'Field' \"_user\" \"Name\" Text ->
+--   'Field' \"_user\" \"Addr\" Text ->
+--   User
+-- recUser = 'coerce' MkUser
+-- @
 makeRecBuilder :: String -> TH.Name -> TH.DecsQ
 makeRecBuilder prefixStr tyName = do
   info <- TH.reify tyName
