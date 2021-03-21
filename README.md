@@ -1,5 +1,7 @@
 # jijo: Bidirectional JSON serialization
 
+[![Build Status](https://github.com/monadfix/jijo/workflows/CI/badge.svg)](https://github.com/monadfix/jijo/actions)
+
 ## Design Goals
 
 * Explicitness – decouple types and encoders/decoders (unlike autoderived
